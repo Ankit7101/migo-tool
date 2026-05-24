@@ -1,0 +1,1334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MIGO Bulk Posting · SAP S/4HANA</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #21262d;
+    --surface3: #30363d;
+    --border: #30363d;
+    --border2: #484f58;
+    --text: #e6edf3;
+    --text2: #8b949e;
+    --text3: #6e7681;
+    --blue: #388bfd;
+    --blue-dim: #1f3a5f;
+    --green: #3fb950;
+    --green-dim: #1a3a24;
+    --red: #f85149;
+    --red-dim: #3a1a1a;
+    --yellow: #d29922;
+    --yellow-dim: #3a2a10;
+    --accent: #58a6ff;
+    --sap-gold: #f0ab00;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'IBM Plex Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 14px;
+  }
+
+  /* ── LOGIN PAGE ── */
+  #login-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    position: relative;
+    overflow: hidden;
+  }
+  #login-page::before {
+    content: '';
+    position: absolute;
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(56,139,253,0.08) 0%, transparent 70%);
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+
+  .login-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 48px 40px;
+    width: 420px;
+    position: relative;
+    z-index: 1;
+  }
+  .login-logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 32px;
+  }
+  .login-logo-icon {
+    width: 40px; height: 40px;
+    background: var(--sap-gold);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    font-size: 14px;
+    color: #000;
+    letter-spacing: -1px;
+  }
+  .login-logo-text { font-size: 18px; font-weight: 600; color: var(--text); }
+  .login-logo-sub { font-size: 12px; color: var(--text2); margin-top: 1px; }
+  .login-title { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+  .login-sub { color: var(--text2); font-size: 13px; margin-bottom: 28px; }
+
+  .field-group { margin-bottom: 16px; }
+  .field-label {
+    display: block; font-size: 12px; font-weight: 500;
+    color: var(--text2); margin-bottom: 6px; letter-spacing: 0.3px;
+  }
+  input[type=text], input[type=password], input[type=date], input[type=number], select {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 9px 12px;
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  input:focus, select:focus { border-color: var(--blue); }
+  input::placeholder { color: var(--text3); }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 9px 18px;
+    border-radius: 6px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: opacity 0.15s, transform 0.1s;
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn-primary { background: var(--blue); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #58a6ff; }
+  .btn-success { background: var(--green); color: #fff; }
+  .btn-success:hover:not(:disabled) { background: #56d364; }
+  .btn-outline {
+    background: transparent; color: var(--text2);
+    border: 1px solid var(--border2);
+  }
+  .btn-outline:hover:not(:disabled) { border-color: var(--text2); color: var(--text); }
+  .btn-full { width: 100%; }
+  .btn-sm { padding: 6px 12px; font-size: 12px; }
+
+  /* ── MAIN APP ── */
+  #app { display: none; }
+
+  .topbar {
+    height: 52px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 14px; }
+  .topbar-logo {
+    width: 28px; height: 28px;
+    background: var(--sap-gold);
+    border-radius: 5px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600; font-size: 10px; color: #000;
+  }
+  .topbar-title { font-weight: 600; font-size: 15px; }
+  .topbar-right { display: flex; align-items: center; gap: 12px; }
+  .user-badge {
+    font-size: 12px; color: var(--text2);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    border-radius: 20px;
+  }
+  .user-badge span { color: var(--text); font-weight: 500; }
+
+  .main-content { padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
+  .tab-btn {
+    padding: 10px 20px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 14px; font-weight: 500;
+    background: none; border: none;
+    color: var(--text2); cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--blue); border-bottom-color: var(--blue); }
+  .tab-icon { font-size: 16px; }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* Upload zone */
+  .upload-zone {
+    border: 2px dashed var(--border2);
+    border-radius: 10px;
+    padding: 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    background: var(--surface);
+    margin-bottom: 20px;
+  }
+  .upload-zone:hover, .upload-zone.drag-over {
+    border-color: var(--blue);
+    background: var(--blue-dim);
+  }
+  .upload-icon { font-size: 40px; margin-bottom: 12px; }
+  .upload-title { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+  .upload-sub { color: var(--text2); font-size: 13px; }
+  .upload-hint { 
+    margin-top: 16px;
+    font-size: 12px; color: var(--text3);
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  /* Template download */
+  .template-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+  }
+  .template-bar-left { font-size: 13px; color: var(--text2); }
+  .template-bar-left strong { color: var(--text); }
+
+  /* Table */
+  .table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 20px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead tr { background: var(--surface2); border-bottom: 1px solid var(--border); }
+  th {
+    padding: 10px 12px;
+    text-align: left;
+    font-weight: 600; font-size: 11px;
+    color: var(--text2);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    white-space: nowrap;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--surface2); }
+  td.status-success { color: var(--green); }
+  td.status-failed { color: var(--red); }
+  td.status-warning { color: var(--yellow); }
+  td.status-pending { color: var(--text3); }
+  td.batch-filled { color: var(--accent); font-weight: 500; }
+  td.doc-filled { color: var(--sap-gold); font-weight: 500; }
+
+  /* Run section */
+  .run-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+  }
+  .run-info { font-size: 13px; color: var(--text2); }
+  .run-info strong { color: var(--text); font-size: 15px; }
+  .run-actions { display: flex; gap: 10px; align-items: center; }
+
+  /* Progress */
+  .progress-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+  }
+  .progress-header {
+    display: flex; justify-content: space-between;
+    margin-bottom: 10px; font-size: 13px;
+  }
+  .progress-bar-bg {
+    height: 6px;
+    background: var(--surface3);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--blue), var(--accent));
+    border-radius: 3px;
+    transition: width 0.3s;
+    width: 0%;
+  }
+  .progress-stats {
+    display: flex; gap: 20px; margin-top: 10px;
+    font-size: 12px; font-family: 'IBM Plex Mono', monospace;
+  }
+  .stat { display: flex; align-items: center; gap: 6px; }
+  .stat-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .stat-success .stat-dot { background: var(--green); }
+  .stat-failed .stat-dot { background: var(--red); }
+  .stat-warning .stat-dot { background: var(--yellow); }
+  .stat-pending .stat-dot { background: var(--text3); }
+
+  /* Log */
+  .log-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+  .log-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px; font-weight: 600; color: var(--text2);
+    letter-spacing: 0.5px; text-transform: uppercase;
+  }
+  .log-body {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    padding: 12px 16px;
+    max-height: 200px;
+    overflow-y: auto;
+    line-height: 1.7;
+  }
+  .log-entry { display: flex; gap: 10px; }
+  .log-time { color: var(--text3); flex-shrink: 0; }
+  .log-ok { color: var(--green); }
+  .log-err { color: var(--red); }
+  .log-warn { color: var(--yellow); }
+  .log-info { color: var(--blue); }
+
+  /* Badge */
+  .badge {
+    display: inline-block; padding: 2px 7px;
+    border-radius: 10px; font-size: 11px; font-weight: 500;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .badge-blue { background: var(--blue-dim); color: var(--blue); }
+  .badge-green { background: var(--green-dim); color: var(--green); }
+  .badge-red { background: var(--red-dim); color: var(--red); }
+  .badge-yellow { background: var(--yellow-dim); color: var(--yellow); }
+
+  /* Row spinner */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 2px solid var(--surface3);
+    border-top-color: var(--blue);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+  }
+
+  /* Helper */
+  .hidden { display: none !important; }
+  .mt8 { margin-top: 8px; }
+  .mt16 { margin-top: 16px; }
+  .flex { display: flex; }
+  .gap8 { gap: 8px; }
+  .items-center { align-items: center; }
+  .justify-between { justify-content: space-between; }
+
+  /* Login error */
+  .login-error {
+    background: var(--red-dim);
+    border: 1px solid var(--red);
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: var(--red);
+    margin-bottom: 16px;
+    display: none;
+  }
+
+  /* Client field row */
+  .field-row { display: flex; gap: 12px; }
+  .field-row .field-group { flex: 1; }
+  .field-row .field-group.narrow { flex: 0 0 120px; }
+
+  select option { background: var(--surface2); }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════
+     LOGIN PAGE
+════════════════════════════════════════ -->
+<div id="login-page">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="login-logo-icon">SAP</div>
+      <div>
+        <div class="login-logo-text">MIGO Bulk Posting</div>
+        <div class="login-logo-sub">S/4HANA Public Cloud · my418877</div>
+      </div>
+    </div>
+
+    <div class="login-title">Sign in to continue</div>
+    <div class="login-sub">Use your SAP S/4HANA credentials. They are only used for direct API calls and never stored.</div>
+
+    <div id="login-error" class="login-error"></div>
+
+    <div class="field-row mt16">
+      <div class="field-group" style="flex:2">
+        <label class="field-label">SAP Username</label>
+        <input type="text" id="login-user" placeholder="e.g. ANKIT_USER" autocomplete="username">
+      </div>
+      <div class="field-group narrow">
+        <label class="field-label">Client</label>
+        <input type="text" id="login-client" value="100" placeholder="100">
+      </div>
+    </div>
+
+    <div class="field-group">
+      <label class="field-label">Password</label>
+      <input type="password" id="login-pass" placeholder="SAP password" autocomplete="current-password">
+    </div>
+
+    <button class="btn btn-primary btn-full mt8" onclick="doLogin()">
+      <span>Sign in</span>
+      <span id="login-arrow">→</span>
+    </button>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     MAIN APP
+════════════════════════════════════════ -->
+<div id="app">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="topbar-logo">SAP</div>
+      <div class="topbar-title">MIGO Bulk Posting</div>
+      <span class="badge badge-blue">my418877</span>
+    </div>
+    <div class="topbar-right">
+      <span class="user-badge">Signed in as <span id="user-display"></span></span>
+      <button class="btn btn-outline btn-sm" onclick="doLogout()">Sign out</button>
+    </div>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div class="main-content">
+
+    <!-- TABS -->
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('501', this)">
+        <span class="tab-icon">📥</span> Movement 501 – Goods Receipt
+      </button>
+      <button class="tab-btn" onclick="switchTab('201', this)">
+        <span class="tab-icon">📤</span> Movement 201 – Goods Issue
+      </button>
+    </div>
+
+    <!-- ─── TAB 501 ─── -->
+    <div id="tab-501" class="tab-panel active">
+
+      <!-- Template & Upload -->
+      <div class="template-bar">
+        <div class="template-bar-left">
+          <strong>501 Excel format:</strong>
+          Material · Plant · SLoc · Weight · Unit · Batch* · Grade · Heat No · Size(mm) · Length(mm) · PCS · Spec · Inspection Remark · Remarks* · Mat.Doc*
+          <span style="color:var(--text3)"> (* filled by API)</span>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="downloadTemplate('501')">⬇ Download Template</button>
+      </div>
+
+      <div class="upload-zone" id="zone-501"
+           onclick="document.getElementById('file-501').click()"
+           ondragover="handleDragOver(event,'zone-501')"
+           ondragleave="handleDragLeave('zone-501')"
+           ondrop="handleDrop(event,'501')">
+        <div class="upload-icon">📂</div>
+        <div class="upload-title">Drop 501 Excel file here or click to browse</div>
+        <div class="upload-sub">Accepts .xlsx / .xls files with header row</div>
+        <div class="upload-hint">MATERIAL | PLANT | SLOC | WEIGHT | UNIT | BATCH | GRADE | HEAT_NO | SIZE_MM | LENGTH_MM | PCS | SPEC | INSPECTION_REMARK</div>
+      </div>
+      <input type="file" id="file-501" accept=".xlsx,.xls" class="hidden" onchange="loadFile(event,'501')">
+
+      <!-- Preview table 501 -->
+      <div id="preview-501" class="hidden">
+        <div class="run-bar">
+          <div class="run-info">
+            <strong id="count-501">0</strong> rows loaded
+            <span style="margin-left:16px" id="status-summary-501"></span>
+          </div>
+          <div class="run-actions">
+            <button class="btn btn-outline btn-sm" onclick="clearData('501')">✕ Clear</button>
+            <button class="btn btn-success" id="run-btn-501" onclick="runAll('501')">▶ Run 501 Posting</button>
+            <button class="btn btn-primary btn-sm hidden" id="dl-btn-501" onclick="downloadResult('501')">⬇ Download Result</button>
+          </div>
+        </div>
+
+        <!-- Progress 501 -->
+        <div id="progress-section-501" class="progress-section hidden">
+          <div class="progress-header">
+            <span id="progress-label-501">Processing…</span>
+            <span id="progress-pct-501">0%</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="progress-fill-501"></div>
+          </div>
+          <div class="progress-stats">
+            <div class="stat stat-success"><div class="stat-dot"></div><span id="ps-ok-501">0 Success</span></div>
+            <div class="stat stat-failed"><div class="stat-dot"></div><span id="ps-fail-501">0 Failed</span></div>
+            <div class="stat stat-warning"><div class="stat-dot"></div><span id="ps-warn-501">0 Class.Err</span></div>
+            <div class="stat stat-pending"><div class="stat-dot"></div><span id="ps-pend-501">0 Pending</span></div>
+          </div>
+        </div>
+
+        <!-- Log 501 -->
+        <div id="log-section-501" class="log-section hidden">
+          <div class="log-header">
+            <span>API Log</span>
+            <button class="btn btn-outline btn-sm" onclick="clearLog('501')">Clear</button>
+          </div>
+          <div class="log-body" id="log-body-501"></div>
+        </div>
+
+        <!-- Table 501 -->
+        <div class="table-wrap">
+          <table id="table-501">
+            <thead>
+              <tr>
+                <th>#</th><th>Material</th><th>Plant</th><th>SLoc</th><th>Weight</th><th>Unit</th>
+                <th>Batch*</th><th>Grade</th><th>Heat No</th><th>Size(mm)</th>
+                <th>Length(mm)</th><th>PCS</th><th>Spec</th><th>Inspection Remark</th>
+                <th>Remarks*</th><th>Mat.Doc*</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-501"></tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /tab-501 -->
+
+    <!-- ─── TAB 201 ─── -->
+    <div id="tab-201" class="tab-panel">
+
+      <div class="template-bar">
+        <div class="template-bar-left">
+          <strong>201 Excel format:</strong>
+          Material · Plant · SLoc · Weight · Unit · Cost Center · Batch · Remarks* · Mat.Doc*
+          <span style="color:var(--text3)"> (* filled by API)</span>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="downloadTemplate('201')">⬇ Download Template</button>
+      </div>
+
+      <div class="upload-zone" id="zone-201"
+           onclick="document.getElementById('file-201').click()"
+           ondragover="handleDragOver(event,'zone-201')"
+           ondragleave="handleDragLeave('zone-201')"
+           ondrop="handleDrop(event,'201')">
+        <div class="upload-icon">📂</div>
+        <div class="upload-title">Drop 201 Excel file here or click to browse</div>
+        <div class="upload-sub">Accepts .xlsx / .xls files with header row</div>
+        <div class="upload-hint">MATERIAL | PLANT | SLOC | WEIGHT | UNIT | COST_CENTER | BATCH</div>
+      </div>
+      <input type="file" id="file-201" accept=".xlsx,.xls" class="hidden" onchange="loadFile(event,'201')">
+
+      <div id="preview-201" class="hidden">
+        <div class="run-bar">
+          <div class="run-info">
+            <strong id="count-201">0</strong> rows loaded
+            <span style="margin-left:16px" id="status-summary-201"></span>
+          </div>
+          <div class="run-actions">
+            <button class="btn btn-outline btn-sm" onclick="clearData('201')">✕ Clear</button>
+            <button class="btn btn-success" id="run-btn-201" onclick="runAll('201')">▶ Run 201 Posting</button>
+            <button class="btn btn-primary btn-sm hidden" id="dl-btn-201" onclick="downloadResult('201')">⬇ Download Result</button>
+          </div>
+        </div>
+
+        <div id="progress-section-201" class="progress-section hidden">
+          <div class="progress-header">
+            <span id="progress-label-201">Processing…</span>
+            <span id="progress-pct-201">0%</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="progress-fill-201"></div>
+          </div>
+          <div class="progress-stats">
+            <div class="stat stat-success"><div class="stat-dot"></div><span id="ps-ok-201">0 Success</span></div>
+            <div class="stat stat-failed"><div class="stat-dot"></div><span id="ps-fail-201">0 Failed</span></div>
+            <div class="stat stat-pending"><div class="stat-dot"></div><span id="ps-pend-201">0 Pending</span></div>
+          </div>
+        </div>
+
+        <div id="log-section-201" class="log-section hidden">
+          <div class="log-header">
+            <span>API Log</span>
+            <button class="btn btn-outline btn-sm" onclick="clearLog('201')">Clear</button>
+          </div>
+          <div class="log-body" id="log-body-201"></div>
+        </div>
+
+        <div class="table-wrap">
+          <table id="table-201">
+            <thead>
+              <tr>
+                <th>#</th><th>Material</th><th>Plant</th><th>SLoc</th>
+                <th>Weight</th><th>Unit</th><th>Cost Center</th><th>Batch</th>
+                <th>Remarks*</th><th>Mat.Doc*</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-201"></tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /tab-201 -->
+
+  </div><!-- /main-content -->
+</div><!-- /app -->
+
+<script>
+// ─────────────────────────────────────────────
+//  CONSTANTS
+// ─────────────────────────────────────────────
+const BASE = 'https://my418877-api.s4hana.cloud.sap';
+const MAT_SRV = `${BASE}/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV`;
+const BATCH_SRV = `${BASE}/sap/opu/odata/sap/API_BATCH_SRV`;
+
+const CHARC = {
+  GRADE:       '1359',
+  HEAT_NO:     '1360',
+  SIZE_MM:     '1364',
+  LENGTH_MM:   '1363',
+  PCS:         '1362',
+  SPEC:        '1366',
+  INSPECTION:  '1368'
+};
+
+// Col headers expected (case-insensitive, trimmed)
+const COLS_501 = ['MATERIAL','PLANT','SLOC','WEIGHT','UNIT','BATCH','GRADE','HEAT_NO','SIZE_MM','LENGTH_MM','PCS','SPEC','INSPECTION_REMARK'];
+const COLS_201 = ['MATERIAL','PLANT','SLOC','WEIGHT','UNIT','COST_CENTER','BATCH'];
+
+let AUTH = { user:'', pass:'', client:'100', b64:'' };
+let DATA = { '501': [], '201': [] };
+let WORKBOOK = { '501': null, '201': null };
+
+// ─────────────────────────────────────────────
+//  AUTH
+// ─────────────────────────────────────────────
+function doLogin() {
+  const u = document.getElementById('login-user').value.trim();
+  const p = document.getElementById('login-pass').value;
+  const c = document.getElementById('login-client').value.trim() || '100';
+  const err = document.getElementById('login-error');
+  err.style.display = 'none';
+
+  if (!u || !p) {
+    err.textContent = 'Please enter your SAP username and password.';
+    err.style.display = 'block'; return;
+  }
+
+  AUTH = { user: u, pass: p, client: c, b64: btoa(`${u}:${p}`) };
+  document.getElementById('user-display').textContent = u;
+  document.getElementById('login-page').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+}
+
+function doLogout() {
+  AUTH = { user:'', pass:'', client:'100', b64:'' };
+  document.getElementById('login-user').value = '';
+  document.getElementById('login-pass').value = '';
+  document.getElementById('login-page').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+}
+
+document.getElementById('login-pass').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+// ─────────────────────────────────────────────
+//  TABS
+// ─────────────────────────────────────────────
+function switchTab(id, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-' + id).classList.add('active');
+}
+
+// ─────────────────────────────────────────────
+//  DRAG/DROP
+// ─────────────────────────────────────────────
+function handleDragOver(e, zoneId) {
+  e.preventDefault();
+  document.getElementById(zoneId).classList.add('drag-over');
+}
+function handleDragLeave(zoneId) {
+  document.getElementById(zoneId).classList.remove('drag-over');
+}
+function handleDrop(e, mv) {
+  e.preventDefault();
+  document.getElementById('zone-' + mv).classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) parseExcel(file, mv);
+}
+
+// ─────────────────────────────────────────────
+//  FILE LOADING
+// ─────────────────────────────────────────────
+function loadFile(e, mv) {
+  const file = e.target.files[0];
+  if (file) parseExcel(file, mv);
+  e.target.value = '';
+}
+
+function parseExcel(file, mv) {
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      WORKBOOK[mv] = wb;
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      if (raw.length < 2) { alert('File has no data rows.'); return; }
+
+      const headers = raw[0].map(h => String(h).trim().toUpperCase().replace(/\s+/g,'_'));
+      const colMap = mv === '501' ? COLS_501 : COLS_201;
+      const rows = [];
+
+      for (let i = 1; i < raw.length; i++) {
+        const r = raw[i];
+        if (r.every(c => c === '' || c === null || c === undefined)) continue;
+        const obj = { _row: i + 1 };
+        colMap.forEach((col, ci) => {
+          const idx = headers.indexOf(col);
+          obj[col] = idx >= 0 ? String(r[idx] ?? '').trim() : (r[ci] !== undefined ? String(r[ci]).trim() : '');
+        });
+        obj.REMARKS = '';
+        obj.MAT_DOC = '';
+        if (mv === '501') obj.BATCH = obj.BATCH || '';
+        obj._status = 'pending';
+        rows.push(obj);
+      }
+
+      DATA[mv] = rows;
+      renderTable(mv);
+      document.getElementById('preview-' + mv).classList.remove('hidden');
+      document.getElementById('count-' + mv).textContent = rows.length;
+    } catch(err) {
+      alert('Error reading file: ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ─────────────────────────────────────────────
+//  TABLE RENDERING
+// ─────────────────────────────────────────────
+function renderTable(mv) {
+  if (mv === '501') renderTable501();
+  else renderTable201();
+  updateSummary(mv);
+}
+
+function renderTable501() {
+  const tbody = document.getElementById('tbody-501');
+  tbody.innerHTML = '';
+  DATA['501'].forEach((r, i) => {
+    const statusCls = r._status === 'Success' ? 'status-success'
+      : r._status === 'Failed' ? 'status-failed'
+      : r._status === 'Failed in Classification' ? 'status-warning'
+      : r._status === 'running' ? '' : 'status-pending';
+    const statusTxt = r._status === 'running'
+      ? '<span class="spinner"></span>' : (r.REMARKS || r._status || '—');
+    const batchTxt = r.BATCH ? `<span class="batch-filled">${r.BATCH}</span>` : '—';
+    const docTxt = r.MAT_DOC ? `<span class="doc-filled">${r.MAT_DOC}</span>` : '—';
+
+    tbody.insertAdjacentHTML('beforeend', `<tr id="row501-${i}">
+      <td>${r._row}</td>
+      <td>${r.MATERIAL||'—'}</td><td>${r.PLANT||'—'}</td><td>${r.SLOC||'—'}</td>
+      <td>${r.WEIGHT||'—'}</td><td>${r.UNIT||'KG'}</td>
+      <td class="batch-cell-${i}">${batchTxt}</td>
+      <td>${r.GRADE||'—'}</td><td>${r.HEAT_NO||'—'}</td>
+      <td>${r.SIZE_MM||'—'}</td><td>${r.LENGTH_MM||'—'}</td>
+      <td>${r.PCS||'—'}</td><td>${r.SPEC||'—'}</td>
+      <td>${r.INSPECTION_REMARK||'—'}</td>
+      <td class="${statusCls} remarks-cell-${i}">${statusTxt}</td>
+      <td class="doc-cell-${i}">${docTxt}</td>
+    </tr>`);
+  });
+}
+
+function renderTable201() {
+  const tbody = document.getElementById('tbody-201');
+  tbody.innerHTML = '';
+  DATA['201'].forEach((r, i) => {
+    const statusCls = r._status === 'Success' ? 'status-success'
+      : r._status === 'Failed' ? 'status-failed'
+      : r._status === 'running' ? '' : 'status-pending';
+    const statusTxt = r._status === 'running'
+      ? '<span class="spinner"></span>' : (r.REMARKS || r._status || '—');
+    const docTxt = r.MAT_DOC ? `<span class="doc-filled">${r.MAT_DOC}</span>` : '—';
+
+    tbody.insertAdjacentHTML('beforeend', `<tr id="row201-${i}">
+      <td>${r._row}</td>
+      <td>${r.MATERIAL||'—'}</td><td>${r.PLANT||'—'}</td><td>${r.SLOC||'—'}</td>
+      <td>${r.WEIGHT||'—'}</td><td>${r.UNIT||'KG'}</td>
+      <td>${r.COST_CENTER||'L001999'}</td><td>${r.BATCH||'—'}</td>
+      <td class="${statusCls} remarks-cell-${i}">${statusTxt}</td>
+      <td class="doc-cell-${i}">${docTxt}</td>
+    </tr>`);
+  });
+}
+
+function updateRowCell(mv, i, field, value) {
+  const cls = field === 'remarks' ? `remarks-cell-${i}` : field === 'doc' ? `doc-cell-${i}` : `batch-cell-${i}`;
+  const el = document.querySelector('.' + cls);
+  if (!el) return;
+  if (field === 'remarks') {
+    const r = DATA[mv][i];
+    el.className = el.className.replace(/status-\w+/g,'');
+    const sc = r._status === 'Success' ? 'status-success'
+      : r._status === 'Failed' ? 'status-failed'
+      : r._status === 'Failed in Classification' ? 'status-warning' : '';
+    el.classList.add(sc);
+    el.textContent = value;
+  } else if (field === 'doc') {
+    el.innerHTML = `<span class="doc-filled">${value}</span>`;
+  } else if (field === 'batch') {
+    el.innerHTML = `<span class="batch-filled">${value}</span>`;
+  }
+}
+
+function setRowRunning(mv, i) {
+  const el = document.querySelector('.remarks-cell-' + i);
+  if (el) { el.className = el.className.replace(/status-\w+/g,''); el.innerHTML = '<span class="spinner"></span>'; }
+}
+
+function updateSummary(mv) {
+  const rows = DATA[mv];
+  const ok = rows.filter(r => r._status === 'Success').length;
+  const fail = rows.filter(r => r._status === 'Failed').length;
+  const warn = rows.filter(r => r._status === 'Failed in Classification').length;
+  const pend = rows.filter(r => r._status === 'pending').length;
+
+  if (mv === '501') {
+    document.getElementById('ps-ok-501').textContent = `${ok} Success`;
+    document.getElementById('ps-fail-501').textContent = `${fail} Failed`;
+    document.getElementById('ps-warn-501').textContent = `${warn} Class.Err`;
+    document.getElementById('ps-pend-501').textContent = `${pend} Pending`;
+  } else {
+    document.getElementById('ps-ok-201').textContent = `${ok} Success`;
+    document.getElementById('ps-fail-201').textContent = `${fail} Failed`;
+    document.getElementById('ps-pend-201').textContent = `${pend} Pending`;
+  }
+}
+
+// ─────────────────────────────────────────────
+//  CLEAR
+// ─────────────────────────────────────────────
+function clearData(mv) {
+  DATA[mv] = [];
+  WORKBOOK[mv] = null;
+  document.getElementById('preview-' + mv).classList.add('hidden');
+  document.getElementById('count-' + mv).textContent = '0';
+  document.getElementById('progress-section-' + mv).classList.add('hidden');
+  document.getElementById('log-section-' + mv).classList.add('hidden');
+  document.getElementById('dl-btn-' + mv).classList.add('hidden');
+}
+
+function clearLog(mv) {
+  document.getElementById('log-body-' + mv).innerHTML = '';
+}
+
+// ─────────────────────────────────────────────
+//  LOGGING
+// ─────────────────────────────────────────────
+function logMsg(mv, type, msg) {
+  const body = document.getElementById('log-body-' + mv);
+  document.getElementById('log-section-' + mv).classList.remove('hidden');
+  const t = new Date().toTimeString().slice(0,8);
+  const cls = type === 'ok' ? 'log-ok' : type === 'err' ? 'log-err' : type === 'warn' ? 'log-warn' : 'log-info';
+  const sym = type === 'ok' ? '✓' : type === 'err' ? '✗' : type === 'warn' ? '⚠' : '→';
+  body.insertAdjacentHTML('beforeend', `<div class="log-entry"><span class="log-time">${t}</span><span class="${cls}">${sym} ${msg}</span></div>`);
+  body.scrollTop = body.scrollHeight;
+}
+
+// ─────────────────────────────────────────────
+//  PROGRESS
+// ─────────────────────────────────────────────
+function updateProgress(mv, done, total) {
+  const pct = Math.round(done / total * 100);
+  document.getElementById('progress-fill-' + mv).style.width = pct + '%';
+  document.getElementById('progress-pct-' + mv).textContent = pct + '%';
+  document.getElementById('progress-label-' + mv).textContent = `Processing row ${done} of ${total}…`;
+  updateSummary(mv);
+}
+
+// ─────────────────────────────────────────────
+//  SAP DATE HELPER
+// ─────────────────────────────────────────────
+function toSAPDate(d) {
+  d = d || new Date();
+  if (typeof d === 'string') d = new Date(d);
+  return '/Date(' + d.getTime() + ')/';
+}
+
+// ─────────────────────────────────────────────
+//  GET CSRF TOKEN
+// ─────────────────────────────────────────────
+async function getCSRFToken() {
+  const res = await fetch(MAT_SRV, {
+    method: 'GET',
+    headers: {
+      'Authorization': 'Basic ' + AUTH.b64,
+      'x-csrf-token': 'Fetch',
+      'sap-client': AUTH.client,
+      'Accept': 'application/json'
+    }
+  });
+  const token = res.headers.get('x-csrf-token');
+  if (!token) throw new Error('Could not get CSRF token. Check credentials or CORS settings.');
+  return token;
+}
+
+// ─────────────────────────────────────────────
+//  POST MIGO 501
+// ─────────────────────────────────────────────
+async function postMIGO501(row, csrfToken) {
+  const today = toSAPDate(new Date());
+  const body = {
+    GoodsMovementCode: '01',
+    PostingDate: today,
+    DocumentDate: today,
+    to_MaterialDocumentItem: [{
+      Material: row.MATERIAL,
+      Plant: row.PLANT,
+      StorageLocation: row.SLOC,
+      GoodsMovementType: '501',
+      QuantityInEntryUnit: row.WEIGHT,
+      EntryUnit: row.UNIT || 'KG'
+    }]
+  };
+
+  const res = await fetch(`${MAT_SRV}/A_MaterialDocumentHeader`, {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Basic ' + AUTH.b64,
+      'x-csrf-token': csrfToken,
+      'sap-client': AUTH.client,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    let errMsg = `HTTP ${res.status}`;
+    try { const j = JSON.parse(errText); errMsg = j?.error?.message?.value || errMsg; } catch(e) {}
+    throw new Error(errMsg);
+  }
+
+  const data = await res.json();
+  const matDoc = data?.d?.MaterialDocument;
+  const matDocYear = data?.d?.MaterialDocumentYear;
+  if (!matDoc) throw new Error('No MaterialDocument in response');
+  return { matDoc, matDocYear };
+}
+
+// ─────────────────────────────────────────────
+//  GET BATCH FROM MATERIAL DOC
+// ─────────────────────────────────────────────
+async function getBatchFromDoc(matDoc, matDocYear) {
+  const url = `${MAT_SRV}/A_MaterialDocumentHeader(MaterialDocument='${matDoc}',MaterialDocumentYear='${matDocYear}')?$expand=to_MaterialDocumentItem`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': 'Basic ' + AUTH.b64,
+      'sap-client': AUTH.client,
+      'Accept': 'application/json'
+    }
+  });
+
+  if (!res.ok) throw new Error(`GET MatDoc failed: HTTP ${res.status}`);
+  const data = await res.json();
+  const items = data?.d?.to_MaterialDocumentItem?.results;
+  if (!items || items.length === 0) throw new Error('No items in material document');
+  const batch = items[0]?.Batch || items[0]?.batch;
+  if (!batch) throw new Error('No Batch found in material document item');
+  return batch;
+}
+
+// ─────────────────────────────────────────────
+//  PUT BATCH CLASSIFICATION ($batch OData)
+// ─────────────────────────────────────────────
+async function putBatchClassification(row, batch, csrfToken) {
+  const mat = row.MATERIAL;
+  const batchId = batch;
+  const batchPlant = '';
+
+  // Build individual PUT entries
+  const entries = [];
+
+  // Text fields
+  const textFields = [
+    { id: CHARC.GRADE,      value: row.GRADE },
+    { id: CHARC.HEAT_NO,    value: row.HEAT_NO },
+    { id: CHARC.SPEC,       value: row.SPEC },
+    { id: CHARC.INSPECTION, value: row.INSPECTION_REMARK }
+  ];
+
+  textFields.forEach(f => {
+    if (!f.value) return;
+    const key = `BatchCharcValue(Material='${mat}',BatchIdentifyingPlant='${batchPlant}',Batch='${batchId}',CharcInternalID='${f.id}',CharcValuePositionNumber='001')`;
+    const body = JSON.stringify({
+      Material: mat,
+      Batch: batchId,
+      BatchIdentifyingPlant: batchPlant,
+      CharcInternalID: f.id,
+      CharcValuePositionNumber: '001',
+      CharcValue: f.value
+    });
+    entries.push({ key, body });
+  });
+
+  // Numeric fields
+  const numFields = [
+    { id: CHARC.SIZE_MM,   val: row.SIZE_MM,   unit: 'MMT' },
+    { id: CHARC.LENGTH_MM, val: row.LENGTH_MM, unit: 'MMT' },
+    { id: CHARC.PCS,       val: row.PCS,       unit: 'PC'  }
+  ];
+
+  numFields.forEach(f => {
+    if (!f.val) return;
+    const num = parseFloat(f.val);
+    const key = `BatchCharcValue(Material='${mat}',BatchIdentifyingPlant='${batchPlant}',Batch='${batchId}',CharcInternalID='${f.id}',CharcValuePositionNumber='001')`;
+    const body = JSON.stringify({
+      Material: mat,
+      Batch: batchId,
+      BatchIdentifyingPlant: batchPlant,
+      CharcInternalID: f.id,
+      CharcValuePositionNumber: '001',
+      CharcFromNumericValue: num,
+      CharcToNumericValue: num,
+      CharcValueUnit: f.unit
+    });
+    entries.push({ key, body });
+  });
+
+  if (entries.length === 0) return; // nothing to update
+
+  // Build $batch body
+  const boundary = 'batch_migo_' + Date.now();
+  const changeset = 'changeset_cls_' + Date.now();
+  let batchBody = `--${boundary}\r\nContent-Type: multipart/mixed; boundary=${changeset}\r\n\r\n`;
+
+  entries.forEach(e => {
+    batchBody += `--${changeset}\r\n`;
+    batchBody += `Content-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n\r\n`;
+    batchBody += `PUT ${e.key} HTTP/1.1\r\n`;
+    batchBody += `Content-Type: application/json\r\nAccept: application/json\r\n\r\n`;
+    batchBody += `${e.body}\r\n`;
+  });
+
+  batchBody += `--${changeset}--\r\n--${boundary}--\r\n`;
+
+  const res = await fetch(`${BATCH_SRV}/$batch`, {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Basic ' + AUTH.b64,
+      'x-csrf-token': csrfToken,
+      'sap-client': AUTH.client,
+      'Content-Type': `multipart/mixed; boundary=${boundary}`,
+      'Accept': 'multipart/mixed'
+    },
+    body: batchBody
+  });
+
+  if (!res.ok) throw new Error(`Batch classification failed: HTTP ${res.status}`);
+
+  const responseText = await res.text();
+  // Check for error in batch response
+  if (responseText.includes('"code"') && responseText.toLowerCase().includes('error')) {
+    // Try to extract error message
+    const match = responseText.match(/"message"\s*:\s*\{[^}]*"value"\s*:\s*"([^"]+)"/);
+    if (match) throw new Error('Classification error: ' + match[1]);
+    throw new Error('Classification batch returned errors. Check batch details.');
+  }
+}
+
+// ─────────────────────────────────────────────
+//  POST MIGO 201
+// ─────────────────────────────────────────────
+async function postMIGO201(row, csrfToken) {
+  const today = toSAPDate(new Date());
+  const body = {
+    GoodsMovementCode: '01',
+    PostingDate: today,
+    DocumentDate: today,
+    to_MaterialDocumentItem: [{
+      Material: row.MATERIAL,
+      Plant: row.PLANT,
+      StorageLocation: row.SLOC,
+      GoodsMovementType: '201',
+      QuantityInEntryUnit: row.WEIGHT,
+      EntryUnit: row.UNIT || 'KG',
+      Batch: row.BATCH || undefined,
+      CostCenter: row.COST_CENTER || 'L001999'
+    }]
+  };
+
+  // Remove undefined keys
+  Object.keys(body.to_MaterialDocumentItem[0]).forEach(k => {
+    if (body.to_MaterialDocumentItem[0][k] === undefined) delete body.to_MaterialDocumentItem[0][k];
+  });
+
+  const res = await fetch(`${MAT_SRV}/A_MaterialDocumentHeader`, {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Basic ' + AUTH.b64,
+      'x-csrf-token': csrfToken,
+      'sap-client': AUTH.client,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    let errMsg = `HTTP ${res.status}`;
+    try { const j = JSON.parse(errText); errMsg = j?.error?.message?.value || errMsg; } catch(e) {}
+    throw new Error(errMsg);
+  }
+
+  const data = await res.json();
+  const matDoc = data?.d?.MaterialDocument;
+  if (!matDoc) throw new Error('No MaterialDocument in response');
+  return matDoc;
+}
+
+// ─────────────────────────────────────────────
+//  RUN ALL
+// ─────────────────────────────────────────────
+async function runAll(mv) {
+  const rows = DATA[mv];
+  if (!rows.length) return;
+
+  const runBtn = document.getElementById('run-btn-' + mv);
+  runBtn.disabled = true;
+
+  document.getElementById('progress-section-' + mv).classList.remove('hidden');
+  document.getElementById('progress-fill-' + mv).style.width = '0%';
+
+  logMsg(mv, 'info', `Starting ${mv} batch · ${rows.length} rows · User: ${AUTH.user}`);
+
+  let csrfToken;
+  try {
+    logMsg(mv, 'info', 'Fetching CSRF token…');
+    csrfToken = await getCSRFToken();
+    logMsg(mv, 'ok', 'CSRF token acquired');
+  } catch(e) {
+    logMsg(mv, 'err', 'CSRF token failed: ' + e.message);
+    runBtn.disabled = false;
+    return;
+  }
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    // Skip already processed
+    if (row._status === 'Success') { updateProgress(mv, i+1, rows.length); continue; }
+
+    row._status = 'running';
+    setRowRunning(mv, i);
+
+    if (mv === '501') {
+      // ── 501 FLOW ──
+      try {
+        logMsg(mv, 'info', `Row ${row._row}: POST MIGO 501 · ${row.MATERIAL} · ${row.WEIGHT} ${row.UNIT||'KG'}`);
+        const { matDoc, matDocYear } = await postMIGO501(row, csrfToken);
+        row.MAT_DOC = matDoc;
+        updateRowCell(mv, i, 'doc', matDoc);
+        logMsg(mv, 'ok', `Row ${row._row}: MatDoc ${matDoc} created`);
+
+        // Get batch
+        logMsg(mv, 'info', `Row ${row._row}: Fetching batch from MatDoc ${matDoc}…`);
+        const batch = await getBatchFromDoc(matDoc, matDocYear);
+        row.BATCH = batch;
+        updateRowCell(mv, i, 'batch', batch);
+        logMsg(mv, 'ok', `Row ${row._row}: Batch → ${batch}`);
+
+        // Classify
+        logMsg(mv, 'info', `Row ${row._row}: Posting batch classification…`);
+        try {
+          await putBatchClassification(row, batch, csrfToken);
+          row._status = 'Success';
+          row.REMARKS = 'Success';
+          logMsg(mv, 'ok', `Row ${row._row}: Classification complete`);
+        } catch(ce) {
+          row._status = 'Failed in Classification';
+          row.REMARKS = 'Failed in Classification';
+          logMsg(mv, 'warn', `Row ${row._row}: Classification error · ${ce.message}`);
+        }
+
+      } catch(e) {
+        row._status = 'Failed';
+        row.REMARKS = 'Failed';
+        logMsg(mv, 'err', `Row ${row._row}: ${e.message}`);
+      }
+
+    } else {
+      // ── 201 FLOW ──
+      try {
+        logMsg(mv, 'info', `Row ${row._row}: POST MIGO 201 · ${row.MATERIAL} · Batch: ${row.BATCH||'N/A'} · CC: ${row.COST_CENTER||'L001999'}`);
+        const matDoc = await postMIGO201(row, csrfToken);
+        row.MAT_DOC = matDoc;
+        row._status = 'Success';
+        row.REMARKS = 'Success';
+        updateRowCell(mv, i, 'doc', matDoc);
+        logMsg(mv, 'ok', `Row ${row._row}: MatDoc ${matDoc} created`);
+      } catch(e) {
+        row._status = 'Failed';
+        row.REMARKS = 'Failed';
+        logMsg(mv, 'err', `Row ${row._row}: ${e.message}`);
+      }
+    }
+
+    updateRowCell(mv, i, 'remarks', row.REMARKS);
+    updateProgress(mv, i + 1, rows.length);
+
+    // Small delay to avoid rate-limiting
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  const ok = rows.filter(r => r._status === 'Success').length;
+  const fail = rows.filter(r => r._status !== 'Success').length;
+  document.getElementById('progress-label-' + mv).textContent = `Done · ${ok} success · ${fail} failed`;
+  logMsg(mv, ok === rows.length ? 'ok' : 'warn', `Completed: ${ok}/${rows.length} succeeded`);
+
+  runBtn.disabled = false;
+  document.getElementById('dl-btn-' + mv).classList.remove('hidden');
+}
+
+// ─────────────────────────────────────────────
+//  DOWNLOAD RESULT
+// ─────────────────────────────────────────────
+function downloadResult(mv) {
+  const rows = DATA[mv];
+  if (!rows.length) return;
+
+  let headers, dataRows;
+
+  if (mv === '501') {
+    headers = ['Material','Plant','SLoc','Weight','Unit','Batch','Grade','Heat No','Size(mm)','Length(mm)','PCS','Spec','Inspection Remark','Remarks','Mat.Doc Number'];
+    dataRows = rows.map(r => [
+      r.MATERIAL, r.PLANT, r.SLOC, r.WEIGHT, r.UNIT||'KG',
+      r.BATCH, r.GRADE, r.HEAT_NO, r.SIZE_MM, r.LENGTH_MM,
+      r.PCS, r.SPEC, r.INSPECTION_REMARK, r.REMARKS, r.MAT_DOC
+    ]);
+  } else {
+    headers = ['Material','Plant','SLoc','Weight','Unit','Cost Center','Batch','Remarks','Mat.Doc Number'];
+    dataRows = rows.map(r => [
+      r.MATERIAL, r.PLANT, r.SLOC, r.WEIGHT, r.UNIT||'KG',
+      r.COST_CENTER||'L001999', r.BATCH, r.REMARKS, r.MAT_DOC
+    ]);
+  }
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+
+  // Style header row
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  for (let c = range.s.c; c <= range.e.c; c++) {
+    const addr = XLSX.utils.encode_cell({ r: 0, c });
+    if (!ws[addr]) continue;
+    ws[addr].s = { font: { bold: true }, fill: { fgColor: { rgb: 'F0AB00' } } };
+  }
+
+  // Color remarks column
+  const remarkColIdx = mv === '501' ? 13 : 7;
+  for (let r = 1; r < dataRows.length + 1; r++) {
+    const addr = XLSX.utils.encode_cell({ r, c: remarkColIdx });
+    if (!ws[addr]) continue;
+    const val = ws[addr].v;
+    if (val === 'Success') ws[addr].s = { font: { color: { rgb: '1F7A1F' }, bold: true } };
+    else if (val === 'Failed') ws[addr].s = { font: { color: { rgb: 'CC0000' }, bold: true } };
+    else if (val === 'Failed in Classification') ws[addr].s = { font: { color: { rgb: 'CC6600' }, bold: true } };
+  }
+
+  // Column widths
+  ws['!cols'] = headers.map((h, i) => ({ wch: Math.max(h.length + 2, 14) }));
+
+  XLSX.utils.book_append_sheet(wb, ws, 'MIGO_' + mv);
+  XLSX.writeFile(wb, `MIGO_${mv}_Result_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+// ─────────────────────────────────────────────
+//  DOWNLOAD TEMPLATE
+// ─────────────────────────────────────────────
+function downloadTemplate(mv) {
+  const wb = XLSX.utils.book_new();
+  let headers, sample;
+
+  if (mv === '501') {
+    headers = ['MATERIAL','PLANT','SLOC','WEIGHT','UNIT','BATCH','GRADE','HEAT_NO','SIZE_MM','LENGTH_MM','PCS','SPEC','INSPECTION_REMARK'];
+    sample  = ['CBLSQR','L001','SF01','1000','KG','','EN39B','26L001','20','6000','50','h6','Passed visual inspection'];
+  } else {
+    headers = ['MATERIAL','PLANT','SLOC','WEIGHT','UNIT','COST_CENTER','BATCH'];
+    sample  = ['CBLSQR','L001','SF01','500','KG','L001999','0000023615'];
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet([headers, sample]);
+  ws['!cols'] = headers.map(h => ({ wch: Math.max(h.length + 2, 16) }));
+
+  // Bold header
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  for (let c = range.s.c; c <= range.e.c; c++) {
+    const addr = XLSX.utils.encode_cell({ r: 0, c });
+    if (ws[addr]) ws[addr].s = { font: { bold: true }, fill: { fgColor: { rgb: 'F0AB00' } } };
+  }
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Template_' + mv);
+  XLSX.writeFile(wb, `MIGO_${mv}_Template.xlsx`);
+}
+</script>
+</body>
+</html>
