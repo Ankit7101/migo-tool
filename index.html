@@ -915,17 +915,47 @@ function toSAPDate(d) {
 //  GET CSRF TOKEN
 // ─────────────────────────────────────────────
 async function getCSRFToken() {
-  const res = await fetch(MAT_SRV, {
-    method: 'GET',
-    headers: {
-      'Authorization': 'Basic ' + AUTH.b64,
-      'x-csrf-token': 'Fetch',
-      'sap-client': AUTH.client,
-      'Accept': 'application/json'
+  let res;
+  try {
+    res = await fetch(MAT_SRV, {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Basic ' + AUTH.b64,
+        'x-csrf-token': 'Fetch',
+        'sap-client': AUTH.client,
+        'Accept': 'application/json'
+      }
+    });
+  } catch(netErr) {
+    // "Failed to fetch" = CORS or network block — never reached SAP
+    const isCors = netErr.message.toLowerCase().includes('fetch') || netErr.name === 'TypeError';
+    if (isCors) {
+      throw new Error(
+        'CORS BLOCK — Browser blocked the request before it reached SAP. ' +
+        'Fix: In SAP go to Communication Arrangements → find API_MATERIAL_DOCUMENT_SRV → ' +
+        'add your GitHub Pages URL (' + location.origin + ') to allowed origins. ' +
+        'Raw error: ' + netErr.message
+      );
     }
-  });
+    throw new Error('Network error: ' + netErr.message);
+  }
+
+  if (res.status === 401) {
+    throw new Error('HTTP 401 Unauthorized — Wrong username or password for client ' + AUTH.client);
+  }
+  if (res.status === 403) {
+    const token = res.headers.get('x-csrf-token');
+    if (token) return token; // SAP sometimes returns token with 403 on first hit
+    throw new Error('HTTP 403 Forbidden — User ' + AUTH.user + ' may lack authorization for API_MATERIAL_DOCUMENT_SRV');
+  }
+  if (!res.ok) {
+    let detail = '';
+    try { const t = await res.text(); detail = t.slice(0, 200); } catch(e) {}
+    throw new Error(`HTTP ${res.status} on CSRF fetch. ${detail}`);
+  }
+
   const token = res.headers.get('x-csrf-token');
-  if (!token) throw new Error('Could not get CSRF token. Check credentials or CORS settings.');
+  if (!token) throw new Error('SAP responded OK but did not return x-csrf-token header. Check Communication Arrangement includes the service.');
   return token;
 }
 
@@ -948,29 +978,40 @@ async function postMIGO501(row, csrfToken) {
     }]
   };
 
-  const res = await fetch(`${MAT_SRV}/A_MaterialDocumentHeader`, {
-    method: 'POST',
-    headers: {
-      'Authorization': 'Basic ' + AUTH.b64,
-      'x-csrf-token': csrfToken,
-      'sap-client': AUTH.client,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json'
-    },
-    body: JSON.stringify(body)
-  });
+  let res;
+  try {
+    res = await fetch(`${MAT_SRV}/A_MaterialDocumentHeader`, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Basic ' + AUTH.b64,
+        'x-csrf-token': csrfToken,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'sap-client': AUTH.client
+      },
+      body: JSON.stringify(body)
+    });
+  } catch(netErr) {
+    throw new Error('Network error on POST 501: ' + netErr.message);
+  }
 
+  const errText = await res.text();
   if (!res.ok) {
-    const errText = await res.text();
     let errMsg = `HTTP ${res.status}`;
-    try { const j = JSON.parse(errText); errMsg = j?.error?.message?.value || errMsg; } catch(e) {}
+    try {
+      const j = JSON.parse(errText);
+      errMsg = j?.error?.message?.value || j?.error?.code || errMsg;
+      const inner = j?.error?.innererror?.errordetails;
+      if (inner && inner.length) errMsg += ' | ' + inner.map(e => e.message).join('; ');
+    } catch(e) { if (errText) errMsg += ': ' + errText.slice(0, 300); }
     throw new Error(errMsg);
   }
 
-  const data = await res.json();
+  let data;
+  try { data = JSON.parse(errText); } catch(e) { throw new Error('Invalid JSON in POST 501 response'); }
   const matDoc = data?.d?.MaterialDocument;
-  const matDocYear = data?.d?.MaterialDocumentYear;
-  if (!matDoc) throw new Error('No MaterialDocument in response');
+  const matDocYear = data?.d?.MaterialDocumentYear || String(new Date().getFullYear());
+  if (!matDoc) throw new Error('No MaterialDocument in response: ' + errText.slice(0,200));
   return { matDoc, matDocYear };
 }
 
@@ -1003,62 +1044,46 @@ async function getBatchFromDoc(matDoc, matDocYear) {
 async function putBatchClassification(row, batch, csrfToken) {
   const mat = row.MATERIAL;
   const batchId = batch;
-  const batchPlant = '';
+  const batchPlant = row.PLANT || '';
 
-  // Build individual PUT entries
+  // Only these 5 fields — skip if blank in Excel
   const entries = [];
 
-  // Text fields
-  const textFields = [
-    { id: CHARC.GRADE,      value: row.GRADE },
-    { id: CHARC.HEAT_NO,    value: row.HEAT_NO },
-    { id: CHARC.SPEC,       value: row.SPEC },
-    { id: CHARC.INSPECTION, value: row.INSPECTION_REMARK }
-  ];
-
-  textFields.forEach(f => {
-    if (!f.value) return;
-    const key = `BatchCharcValue(Material='${mat}',BatchIdentifyingPlant='${batchPlant}',Batch='${batchId}',CharcInternalID='${f.id}',CharcValuePositionNumber='001')`;
-    const body = JSON.stringify({
-      Material: mat,
-      Batch: batchId,
-      BatchIdentifyingPlant: batchPlant,
-      CharcInternalID: f.id,
-      CharcValuePositionNumber: '001',
-      CharcValue: f.value
-    });
-    entries.push({ key, body });
+  // Grade (1359) — text
+  if (row.GRADE) entries.push({
+    key: `BatchCharcValue(Material='${mat}',BatchIdentifyingPlant='${batchPlant}',Batch='${batchId}',CharcInternalID='${CHARC.GRADE}',CharcValuePositionNumber='001')`,
+    body: JSON.stringify({ Material: mat, Batch: batchId, BatchIdentifyingPlant: batchPlant, CharcInternalID: CHARC.GRADE, CharcValuePositionNumber: '001', CharcValue: row.GRADE })
   });
 
-  // Numeric fields
-  const numFields = [
-    { id: CHARC.SIZE_MM,   val: row.SIZE_MM,   unit: 'MMT' },
-    { id: CHARC.LENGTH_MM, val: row.LENGTH_MM, unit: 'MMT' },
-    { id: CHARC.PCS,       val: row.PCS,       unit: 'PC'  }
-  ];
-
-  numFields.forEach(f => {
-    if (!f.val) return;
-    const num = parseFloat(f.val);
-    const key = `BatchCharcValue(Material='${mat}',BatchIdentifyingPlant='${batchPlant}',Batch='${batchId}',CharcInternalID='${f.id}',CharcValuePositionNumber='001')`;
-    const body = JSON.stringify({
-      Material: mat,
-      Batch: batchId,
-      BatchIdentifyingPlant: batchPlant,
-      CharcInternalID: f.id,
-      CharcValuePositionNumber: '001',
-      CharcFromNumericValue: num,
-      CharcToNumericValue: num,
-      CharcValueUnit: f.unit
-    });
-    entries.push({ key, body });
+  // Heat No (1360) — text
+  if (row.HEAT_NO) entries.push({
+    key: `BatchCharcValue(Material='${mat}',BatchIdentifyingPlant='${batchPlant}',Batch='${batchId}',CharcInternalID='${CHARC.HEAT_NO}',CharcValuePositionNumber='001')`,
+    body: JSON.stringify({ Material: mat, Batch: batchId, BatchIdentifyingPlant: batchPlant, CharcInternalID: CHARC.HEAT_NO, CharcValuePositionNumber: '001', CharcValue: row.HEAT_NO })
   });
 
-  if (entries.length === 0) return; // nothing to update
+  // Size (1364) — numeric
+  if (row.SIZE_MM) entries.push({
+    key: `BatchCharcValue(Material='${mat}',BatchIdentifyingPlant='${batchPlant}',Batch='${batchId}',CharcInternalID='${CHARC.SIZE_MM}',CharcValuePositionNumber='001')`,
+    body: JSON.stringify({ Material: mat, Batch: batchId, BatchIdentifyingPlant: batchPlant, CharcInternalID: CHARC.SIZE_MM, CharcValuePositionNumber: '001', CharcFromNumericValue: parseFloat(row.SIZE_MM), CharcToNumericValue: parseFloat(row.SIZE_MM) })
+  });
 
-  // Build $batch body
-  const boundary = 'batch_migo_' + Date.now();
-  const changeset = 'changeset_cls_' + Date.now();
+  // PCS (1362) — numeric
+  if (row.PCS) entries.push({
+    key: `BatchCharcValue(Material='${mat}',BatchIdentifyingPlant='${batchPlant}',Batch='${batchId}',CharcInternalID='${CHARC.PCS}',CharcValuePositionNumber='001')`,
+    body: JSON.stringify({ Material: mat, Batch: batchId, BatchIdentifyingPlant: batchPlant, CharcInternalID: CHARC.PCS, CharcValuePositionNumber: '001', CharcFromNumericValue: parseFloat(row.PCS), CharcToNumericValue: parseFloat(row.PCS) })
+  });
+
+  // Length (1363) — numeric
+  if (row.LENGTH_MM) entries.push({
+    key: `BatchCharcValue(Material='${mat}',BatchIdentifyingPlant='${batchPlant}',Batch='${batchId}',CharcInternalID='${CHARC.LENGTH_MM}',CharcValuePositionNumber='001')`,
+    body: JSON.stringify({ Material: mat, Batch: batchId, BatchIdentifyingPlant: batchPlant, CharcInternalID: CHARC.LENGTH_MM, CharcValuePositionNumber: '001', CharcFromNumericValue: parseFloat(row.LENGTH_MM), CharcToNumericValue: parseFloat(row.LENGTH_MM) })
+  });
+
+  if (entries.length === 0) return;
+
+  // Boundary names exactly matching Mahesh confirmed payload
+  const boundary = 'batch_steel_production';
+  const changeset = 'changeset_save_values';
   let batchBody = `--${boundary}\r\nContent-Type: multipart/mixed; boundary=${changeset}\r\n\r\n`;
 
   entries.forEach(e => {
@@ -1121,27 +1146,38 @@ async function postMIGO201(row, csrfToken) {
     if (body.to_MaterialDocumentItem[0][k] === undefined) delete body.to_MaterialDocumentItem[0][k];
   });
 
-  const res = await fetch(`${MAT_SRV}/A_MaterialDocumentHeader`, {
-    method: 'POST',
-    headers: {
-      'Authorization': 'Basic ' + AUTH.b64,
-      'x-csrf-token': csrfToken,
-      'sap-client': AUTH.client,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json'
-    },
-    body: JSON.stringify(body)
-  });
+  let res201;
+  try {
+    res201 = await fetch(`${MAT_SRV}/A_MaterialDocumentHeader`, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Basic ' + AUTH.b64,
+        'x-csrf-token': csrfToken,
+        'sap-client': AUTH.client,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+  } catch(netErr) {
+    throw new Error('Network error on POST 201: ' + netErr.message);
+  }
 
-  if (!res.ok) {
-    const errText = await res.text();
-    let errMsg = `HTTP ${res.status}`;
-    try { const j = JSON.parse(errText); errMsg = j?.error?.message?.value || errMsg; } catch(e) {}
+  const errText201 = await res201.text();
+  if (!res201.ok) {
+    let errMsg = `HTTP ${res201.status}`;
+    try {
+      const j = JSON.parse(errText201);
+      errMsg = j?.error?.message?.value || j?.error?.code || errMsg;
+      const inner = j?.error?.innererror?.errordetails;
+      if (inner && inner.length) errMsg += ' | ' + inner.map(e => e.message).join('; ');
+    } catch(e) { if (errText201) errMsg += ': ' + errText201.slice(0, 300); }
     throw new Error(errMsg);
   }
 
-  const data = await res.json();
-  const matDoc = data?.d?.MaterialDocument;
+  let data201;
+  try { data201 = JSON.parse(errText201); } catch(e) { throw new Error('Invalid JSON in POST 201 response'); }
+  const matDoc = data201?.d?.MaterialDocument;
   if (!matDoc) throw new Error('No MaterialDocument in response');
   return matDoc;
 }
