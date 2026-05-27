@@ -628,9 +628,10 @@
 // ─────────────────────────────────────────────
 //  CONSTANTS
 // ─────────────────────────────────────────────
-const BASE = 'https://my418877-api.s4hana.cloud.sap';
+const BASE = window.location.origin;
 const MAT_SRV = `${BASE}/sap/opu/odata/sap/API_MATERIAL_DOCUMENT_SRV`;
 const BATCH_SRV = `${BASE}/sap/opu/odata/sap/API_BATCH_SRV`;
+const BATCH_ENDPOINT = `${BASE}/sap/opu/odata/sap/API_BATCH_SRV/$batch`;
 
 const CHARC = {
   GRADE:       '1359',
@@ -1019,104 +1020,86 @@ async function postMIGO501(row, csrfToken) {
 //  GET BATCH FROM MATERIAL DOC
 // ─────────────────────────────────────────────
 async function getBatchFromDoc(matDoc, matDocYear) {
-  const url = `${MAT_SRV}/A_MaterialDocumentHeader(MaterialDocument='${matDoc}',MaterialDocumentYear='${matDocYear}')?$expand=to_MaterialDocumentItem`;
-  const res = await fetch(url, {
-    method: 'GET',
-    headers: {
-      'Authorization': 'Basic ' + AUTH.b64,
-      'sap-client': AUTH.client,
-      'Accept': 'application/json'
-    }
-  });
+  // Use A_MaterialDocumentItem directly — avoids special char encoding issues with Header key
+  const url = `${MAT_SRV}/A_MaterialDocumentItem?$filter=MaterialDocument eq '${matDoc}' and MaterialDocumentYear eq '${matDocYear}'&$select=MaterialDocument,MaterialDocumentYear,MaterialDocumentItem,Batch`;
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Basic ' + AUTH.b64,
+        'sap-client': AUTH.client,
+        'Accept': 'application/json'
+      }
+    });
+  } catch(netErr) {
+    throw new Error('Network error on GET Batch: ' + netErr.message);
+  }
 
-  if (!res.ok) throw new Error(`GET MatDoc failed: HTTP ${res.status}`);
+  if (!res.ok) {
+    const t = await res.text();
+    let msg = `GET Batch failed: HTTP ${res.status}`;
+    try { const j = JSON.parse(t); msg += ' - ' + (j?.error?.message?.value || ''); } catch(e) {}
+    throw new Error(msg);
+  }
+
   const data = await res.json();
-  const items = data?.d?.to_MaterialDocumentItem?.results;
-  if (!items || items.length === 0) throw new Error('No items in material document');
-  const batch = items[0]?.Batch || items[0]?.batch;
-  if (!batch) throw new Error('No Batch found in material document item');
+  const items = data?.d?.results;
+  if (!items || items.length === 0) throw new Error('No items found for MatDoc ' + matDoc);
+  const batch = items[0]?.Batch;
+  if (!batch) throw new Error('Batch field empty in MatDoc item — batch may not be managed for this material');
   return batch;
 }
 
 // ─────────────────────────────────────────────
-//  PUT BATCH CLASSIFICATION ($batch OData)
+//  PUT BATCH CLASSIFICATION (individual PUTs)
 // ─────────────────────────────────────────────
 async function putBatchClassification(row, batch, csrfToken) {
-  const mat = row.MATERIAL;
+  const mat    = row.MATERIAL;
   const batchId = batch;
-  const batchPlant = row.PLANT || '';
+  const plant  = row.PLANT || '';
 
-  // Only these 5 fields — skip if blank in Excel
-  const entries = [];
+  // Only Grade, Heat No, Size, PCS, Length — skip if blank
+  const fields = [];
+  if (row.GRADE)      fields.push({ id: '1359', type: 'text',    value: row.GRADE });
+  if (row.HEAT_NO)    fields.push({ id: '1360', type: 'text',    value: row.HEAT_NO });
+  if (row.SIZE_MM)    fields.push({ id: '1364', type: 'numeric', value: parseFloat(row.SIZE_MM) });
+  if (row.PCS)        fields.push({ id: '1362', type: 'numeric', value: parseFloat(row.PCS) });
+  if (row.LENGTH_MM)  fields.push({ id: '1363', type: 'numeric', value: parseFloat(row.LENGTH_MM) });
 
-  // Grade (1359) — text
-  if (row.GRADE) entries.push({
-    key: `BatchCharcValue(Material='${mat}',BatchIdentifyingPlant='${batchPlant}',Batch='${batchId}',CharcInternalID='${CHARC.GRADE}',CharcValuePositionNumber='001')`,
-    body: JSON.stringify({ Material: mat, Batch: batchId, BatchIdentifyingPlant: batchPlant, CharcInternalID: CHARC.GRADE, CharcValuePositionNumber: '001', CharcValue: row.GRADE })
-  });
+  if (fields.length === 0) return;
 
-  // Heat No (1360) — text
-  if (row.HEAT_NO) entries.push({
-    key: `BatchCharcValue(Material='${mat}',BatchIdentifyingPlant='${batchPlant}',Batch='${batchId}',CharcInternalID='${CHARC.HEAT_NO}',CharcValuePositionNumber='001')`,
-    body: JSON.stringify({ Material: mat, Batch: batchId, BatchIdentifyingPlant: batchPlant, CharcInternalID: CHARC.HEAT_NO, CharcValuePositionNumber: '001', CharcValue: row.HEAT_NO })
-  });
+  for (const f of fields) {
+    const urlKey = `BatchCharcValue(Material='${mat}',BatchIdentifyingPlant='${plant}',Batch='${batchId}',CharcInternalID='${f.id}',CharcValuePositionNumber='001')`;
+    const url = `${BATCH_SRV}/${urlKey}`;
 
-  // Size (1364) — numeric
-  if (row.SIZE_MM) entries.push({
-    key: `BatchCharcValue(Material='${mat}',BatchIdentifyingPlant='${batchPlant}',Batch='${batchId}',CharcInternalID='${CHARC.SIZE_MM}',CharcValuePositionNumber='001')`,
-    body: JSON.stringify({ Material: mat, Batch: batchId, BatchIdentifyingPlant: batchPlant, CharcInternalID: CHARC.SIZE_MM, CharcValuePositionNumber: '001', CharcFromNumericValue: parseFloat(row.SIZE_MM), CharcToNumericValue: parseFloat(row.SIZE_MM) })
-  });
+    const body = f.type === 'text'
+      ? { Material: mat, Batch: batchId, BatchIdentifyingPlant: plant, CharcInternalID: f.id, CharcValuePositionNumber: '001', CharcValue: f.value }
+      : { Material: mat, Batch: batchId, BatchIdentifyingPlant: plant, CharcInternalID: f.id, CharcValuePositionNumber: '001', CharcFromNumericValue: f.value, CharcToNumericValue: f.value };
 
-  // PCS (1362) — numeric
-  if (row.PCS) entries.push({
-    key: `BatchCharcValue(Material='${mat}',BatchIdentifyingPlant='${batchPlant}',Batch='${batchId}',CharcInternalID='${CHARC.PCS}',CharcValuePositionNumber='001')`,
-    body: JSON.stringify({ Material: mat, Batch: batchId, BatchIdentifyingPlant: batchPlant, CharcInternalID: CHARC.PCS, CharcValuePositionNumber: '001', CharcFromNumericValue: parseFloat(row.PCS), CharcToNumericValue: parseFloat(row.PCS) })
-  });
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          'Authorization': 'Basic ' + AUTH.b64,
+          'x-csrf-token': csrfToken,
+          'sap-client': AUTH.client,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+    } catch(netErr) {
+      throw new Error(`Network error on CharID ${f.id}: ${netErr.message}`);
+    }
 
-  // Length (1363) — numeric
-  if (row.LENGTH_MM) entries.push({
-    key: `BatchCharcValue(Material='${mat}',BatchIdentifyingPlant='${batchPlant}',Batch='${batchId}',CharcInternalID='${CHARC.LENGTH_MM}',CharcValuePositionNumber='001')`,
-    body: JSON.stringify({ Material: mat, Batch: batchId, BatchIdentifyingPlant: batchPlant, CharcInternalID: CHARC.LENGTH_MM, CharcValuePositionNumber: '001', CharcFromNumericValue: parseFloat(row.LENGTH_MM), CharcToNumericValue: parseFloat(row.LENGTH_MM) })
-  });
-
-  if (entries.length === 0) return;
-
-  // Boundary names exactly matching Mahesh confirmed payload
-  const boundary = 'batch_steel_production';
-  const changeset = 'changeset_save_values';
-  let batchBody = `--${boundary}\r\nContent-Type: multipart/mixed; boundary=${changeset}\r\n\r\n`;
-
-  entries.forEach(e => {
-    batchBody += `--${changeset}\r\n`;
-    batchBody += `Content-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n\r\n`;
-    batchBody += `PUT ${e.key} HTTP/1.1\r\n`;
-    batchBody += `Content-Type: application/json\r\nAccept: application/json\r\n\r\n`;
-    batchBody += `${e.body}\r\n`;
-  });
-
-  batchBody += `--${changeset}--\r\n--${boundary}--\r\n`;
-
-  const res = await fetch(`${BATCH_SRV}/$batch`, {
-    method: 'POST',
-    headers: {
-      'Authorization': 'Basic ' + AUTH.b64,
-      'x-csrf-token': csrfToken,
-      'sap-client': AUTH.client,
-      'Content-Type': `multipart/mixed; boundary=${boundary}`,
-      'Accept': 'multipart/mixed'
-    },
-    body: batchBody
-  });
-
-  if (!res.ok) throw new Error(`Batch classification failed: HTTP ${res.status}`);
-
-  const responseText = await res.text();
-  // Check for error in batch response
-  if (responseText.includes('"code"') && responseText.toLowerCase().includes('error')) {
-    // Try to extract error message
-    const match = responseText.match(/"message"\s*:\s*\{[^}]*"value"\s*:\s*"([^"]+)"/);
-    if (match) throw new Error('Classification error: ' + match[1]);
-    throw new Error('Classification batch returned errors. Check batch details.');
+    if (!res.ok) {
+      const t = await res.text();
+      let msg = `CharID ${f.id} failed: HTTP ${res.status}`;
+      try { const j = JSON.parse(t); msg += ' - ' + (j?.error?.message?.value || t.slice(0,200)); } catch(e) {}
+      throw new Error(msg);
+    }
   }
 }
 
